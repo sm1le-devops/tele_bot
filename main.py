@@ -2,11 +2,12 @@ from telegram.ext import Application, MessageHandler, filters, CommandHandler
 import re
 from datetime import datetime, timedelta
 import os
+from dotenv import load_dotenv
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_NICK = "@conterbloxadmin"
 MODER_NICK = "@sm1le697"
-from dotenv import load_dotenv
+
 
 BAN_PHRASES = [
     r"переходите\s+в\s+мою\s+телеграм\s+группу",
