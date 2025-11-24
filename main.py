@@ -1,14 +1,20 @@
-from telegram.ext import Application, MessageHandler, filters, CommandHandler
+from telegram import Update, Bot
+from telegram.ext import Application, Dispatcher, CommandHandler, MessageHandler, filters
+from flask import Flask, request
+import os
 import re
 from datetime import datetime, timedelta
-import os
 from dotenv import load_dotenv
+
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_NICK = "@conterbloxadmin"
 MODER_NICK = "@sm1le697"
 
+PORT = int(os.environ.get("PORT", 5000))
+WEBHOOK_URL = f"https://your-app-name.onrender.com/{TOKEN}"
 
+# ---------------- Ваши данные ----------------
 BAN_PHRASES = [
     r"переходите\s+в\s+мою\s+телеграм\s+группу",
     r"переходите\s+в\s+мой\s+тгк",
@@ -16,25 +22,14 @@ BAN_PHRASES = [
     r"мой\s+канал",
     r"подпишитесь\s+на\s+мой",
     r"реклама",
-    r"переходите\s+в\s+мою\s+группу",
-    r"переходите\s+в\s+группу",
-    r"переходите\s+в\s+чат",
-    r"заходите\s+в\s+мою\s+группу",
-    r"заходите\s+в\s+группу",
-    r"заходите\s+в\s+тгк",
-    r"заходите\s+в\s+мой\s+тгк",
     r"заходите\s+в\s+чат",
-    r"заходите\s+в\s+мой\s+канал",
     r"\d{16}",
     r"\d{4}\s\d{4}\s\d{4}\s\d{4}",
 ]
-
 SPAM_LIMIT = 17
-
-# ---------------- глобальные словари ----------------
-user_streak = {}        # user_id -> количество подряд сообщений
-user_messages = {}      # user_id -> список сообщений
-last_user_in_chat = {}  # chat_id -> user_id
+user_streak = {}
+user_messages = {}
+last_user_in_chat = {}
 user_violations = {}
 soft_muted_users = {}
 spam_warnings = {}
@@ -51,6 +46,12 @@ TOURNAMENT_INFO = """
 🎮 *Информация о турнирах*:
 — Последний турнир: Counter_blox_team
 — Победитель: еще нет
+— Участники:
+    blood sins
+    Kolbaski Gaming
+    матвей повелитель
+    cats counter blox
+    сардельки
 — Призовой фонд: AK47 Shooting Star(1000value)
 — Следующий: состоится в ближайшее время!
 """
@@ -136,8 +137,7 @@ async def text_listener(update, context):
                 await apply_soft_mute(user_id, chat_id, duration_hours=2)
             return
 
-    # ---------------- Антиспам (только подряд) ----------------
-    # если предыдущий пользователь в этом чате другой — обнуляем streak
+    # ---------------- Антиспам ----------------
     if last_user_in_chat.get(chat_id) != user_id:
         user_streak[user_id] = 1
         user_messages[user_id] = [update.message]
@@ -145,33 +145,39 @@ async def text_listener(update, context):
         user_streak[user_id] = user_streak.get(user_id, 0) + 1
         user_messages.setdefault(user_id, []).append(update.message)
 
-    # сохраняем текущего пользователя как последнего
     last_user_in_chat[chat_id] = user_id
 
-    # проверка лимита подряд сообщений
     if user_streak[user_id] >= SPAM_LIMIT:
         for msg in user_messages[user_id]:
             try: await msg.delete()
             except: pass
-
-        # первый раз — предупреждение
         if not spam_warnings.get(user_id):
             spam_warnings[user_id] = True
             await context.bot.send_message(chat_id=chat_id,
                                            text=f"⚠ {user_name}, спам! При повторном превышении сообщений будет МУТ на 2 часа.")
-        # повторный спам — мут на 2 часа
         else:
             await context.bot.send_message(chat_id=chat_id,
                                            text=f"⛔ {user_name}, спам!\nМУТ\nпричина: спам.\nвремя ограничения: 2 часа.")
             await apply_soft_mute(user_id, chat_id, duration_hours=2)
             spam_warnings[user_id] = False
-
-        # обнуляем streak и список сообщений
         user_streak[user_id] = 0
         user_messages[user_id] = []
 
-# ---------------- Запуск бота ----------------
-app = Application.builder().token(TOKEN).build()
-app.add_handler(CommandHandler("start", cmd_start))
-app.add_handler(MessageHandler(filters.TEXT | filters.Sticker.ALL, text_listener))
-app.run_polling()
+# ---------------- Flask + Telegram ----------------
+app = Flask(__name__)
+bot = Bot(TOKEN)
+dispatcher = Dispatcher(bot, None, workers=0)
+dispatcher.add_handler(CommandHandler("start", cmd_start))
+dispatcher.add_handler(MessageHandler(filters.TEXT | filters.Sticker.ALL, text_listener))
+
+@app.route(f'/{TOKEN}', methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    dispatcher.process_update(update)
+    return "ok"
+
+# ---------------- Установка webhook ----------------
+bot.set_webhook(WEBHOOK_URL)
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT)
