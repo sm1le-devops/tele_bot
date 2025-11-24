@@ -168,7 +168,7 @@ async def text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
 app = Flask(__name__)
 application = Application.builder().token(TOKEN).build()
 application.add_handler(CommandHandler("start", cmd_start))
-application.add_handler(MessageHandler(filters.TEXT | filters.STICKER, text_listener))
+application.add_handler(MessageHandler(filters.TEXT | filters.Sticker.ALL, text_listener))
 
 @app.route(f'/{TOKEN}', methods=["POST"])
 def webhook():
