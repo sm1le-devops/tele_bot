@@ -1,20 +1,21 @@
 from telegram import Update, Bot
-from telegram.ext import Application, Dispatcher, CommandHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from flask import Flask, request
 import os
 import re
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import asyncio
 
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_NICK = "@conterbloxadmin"
 MODER_NICK = "@sm1le697"
 
-PORT = int(os.environ.get("PORT", 5000))
+PORT = int(os.environ.get("PORT", 10000))
 WEBHOOK_URL = f"https://your-app-name.onrender.com/{TOKEN}"
 
-# ---------------- Ваши данные ----------------
+# ---------------- Данные ----------------
 BAN_PHRASES = [
     r"переходите\s+в\s+мою\s+телеграм\s+группу",
     r"переходите\s+в\s+мой\s+тгк",
@@ -61,7 +62,7 @@ async def apply_soft_mute(user_id, chat_id, duration_hours=2):
     soft_muted_users[user_id] = datetime.now() + timedelta(hours=duration_hours)
 
 # ---------------- Команды ----------------
-async def cmd_start(update, context):
+async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Бот-модератор diamant_manager!\n\n"
         "Доступные команды:\n"
@@ -72,25 +73,25 @@ async def cmd_start(update, context):
         "!реклама – правила рекламы"
     )
 
-async def cmd_moder(update, context):
+async def cmd_moder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"👮 Модератор группы: {MODER_NICK}")
 
-async def cmd_admin(update, context):
+async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🛡 Администратор группы: {ADMIN_NICK}")
 
-async def cmd_rules(update, context):
+async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(RULES)
 
-async def cmd_tournament(update, context):
+async def cmd_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(TOURNAMENT_INFO)
 
-async def cmd_ads(update, context):
+async def cmd_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📢 Любая реклама запрещена! Если хотите разместить — согласуйте с {ADMIN_NICK}"
     )
 
 # ---------------- Обработчик текста ----------------
-async def text_listener(update, context):
+async def text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message or not update.message.from_user:
         return
 
@@ -99,7 +100,7 @@ async def text_listener(update, context):
     text = update.message.text.lower() if update.message.text else ""
     user_name = f"@{update.message.from_user.username}" if update.message.from_user.username else update.message.from_user.first_name
 
-    # ---------------- Команды через "!" ----------------
+    # Команды через "!"
     if text.startswith("!"):
         cmd = text[1:]
         if cmd == "модер": await cmd_moder(update, context)
@@ -109,7 +110,7 @@ async def text_listener(update, context):
         elif cmd == "реклама": await cmd_ads(update, context)
         return
 
-    # ---------------- Soft-mute ----------------
+    # Soft-mute
     if user_id in soft_muted_users:
         if datetime.now() < soft_muted_users[user_id]:
             try: await update.message.delete()
@@ -118,7 +119,7 @@ async def text_listener(update, context):
         else:
             soft_muted_users.pop(user_id, None)
 
-    # ---------------- BAN_PHRASES ----------------
+    # BAN_PHRASES
     for pattern in BAN_PHRASES:
         if text and re.search(pattern, text, re.IGNORECASE):
             try: await update.message.delete()
@@ -137,7 +138,7 @@ async def text_listener(update, context):
                 await apply_soft_mute(user_id, chat_id, duration_hours=2)
             return
 
-    # ---------------- Антиспам ----------------
+    # Антиспам
     if last_user_in_chat.get(chat_id) != user_id:
         user_streak[user_id] = 1
         user_messages[user_id] = [update.message]
@@ -163,21 +164,23 @@ async def text_listener(update, context):
         user_streak[user_id] = 0
         user_messages[user_id] = []
 
-# ---------------- Flask + Telegram ----------------
+# ---------------- Flask webhook ----------------
 app = Flask(__name__)
-bot = Bot(TOKEN)
-dispatcher = Dispatcher(bot, None, workers=0)
-dispatcher.add_handler(CommandHandler("start", cmd_start))
-dispatcher.add_handler(MessageHandler(filters.TEXT | filters.Sticker.ALL, text_listener))
+application = Application.builder().token(TOKEN).build()
+application.add_handler(CommandHandler("start", cmd_start))
+application.add_handler(MessageHandler(filters.TEXT | filters.STICKER, text_listener))
 
 @app.route(f'/{TOKEN}', methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    dispatcher.process_update(update)
+    data = request.get_json(force=True)
+    update = Update.de_json(data, application.bot)
+    asyncio.run(application.update_queue.put(update))
     return "ok"
 
 # ---------------- Установка webhook ----------------
-bot.set_webhook(WEBHOOK_URL)
+async def set_webhook():
+    await application.bot.set_webhook(WEBHOOK_URL)
 
 if __name__ == "__main__":
+    asyncio.run(set_webhook())
     app.run(host="0.0.0.0", port=PORT)
