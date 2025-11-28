@@ -7,16 +7,15 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 import asyncio
 
+# ------------------- Загрузка ENV -------------------
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+PORT = int(os.environ.get("PORT", 10000))
 ADMIN_NICK = "@conterbloxadmin"
 MODER_NICK = "@sm1le697"
 
-PORT = int(os.environ.get("PORT", 10000))
-WEBHOOK_URL = f"https://your-app-name.onrender.com/webhook/{TOKEN}"
-
-# ------------------------------------- Данные -------------------------------------
-
+# ------------------- Настройки -------------------
 BAN_PHRASES = [
     r"переходите\s+в\s+мою\s+телеграм\s+группу",
     r"переходите\s+в\s+мой\s+тгк",
@@ -30,7 +29,6 @@ BAN_PHRASES = [
 ]
 
 SPAM_LIMIT = 17
-
 user_streak = {}
 user_messages = {}
 last_user_in_chat = {}
@@ -60,15 +58,11 @@ TOURNAMENT_INFO = """
 — Следующий: состоится в ближайшее время!
 """
 
-
-# ------------------------------------- Soft-mute -------------------------------------
-
+# ------------------- Soft-mute -------------------
 async def apply_soft_mute(user_id, chat_id, duration_hours=2):
     soft_muted_users[user_id] = datetime.now() + timedelta(hours=duration_hours)
 
-
-# ------------------------------------- Команды -------------------------------------
-
+# ------------------- Команды -------------------
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Бот-модератор diamant_manager!\n\n"
@@ -80,31 +74,24 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "!реклама – правила рекламы"
     )
 
-
 async def cmd_moder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"👮 Модератор группы: {MODER_NICK}")
-
 
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🛡 Администратор группы: {ADMIN_NICK}")
 
-
 async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(RULES)
 
-
 async def cmd_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(TOURNAMENT_INFO)
-
 
 async def cmd_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📢 Любая реклама запрещена! Если хотите разместить — согласуйте с {ADMIN_NICK}"
     )
 
-
-# ---------------------------------- Обработчик текста ----------------------------------
-
+# ------------------- Обработчик текста -------------------
 async def text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not update.message:
         return
@@ -177,9 +164,7 @@ async def text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_streak[user_id] = 0
         user_messages[user_id] = []
 
-
-# ---------------------------------- Flask (WEBHOOK) ----------------------------------
-
+# ------------------- Flask (WEBHOOK) -------------------
 app = Flask(__name__)
 
 # создаём Application один раз
@@ -189,24 +174,20 @@ application = Application.builder().token(TOKEN).build()
 application.add_handler(CommandHandler("start", cmd_start))
 application.add_handler(MessageHandler(filters.TEXT | filters.Sticker.ALL, text_listener))
 
-
-@app.route(f"/webhook/{TOKEN}", methods=["POST"])
+@app.route("/webhook", methods=["POST"])
 def webhook():
     data = request.get_json()
     update = Update.de_json(data, application.bot)
     asyncio.create_task(application.process_update(update))
     return "ok"
 
-
-# ----------------------------------- WEBHOOK SETUP -----------------------------------
-
+# ------------------- Установка WEBHOOK -------------------
 async def setup_webhook():
+    await application.bot.delete_webhook(drop_pending_updates=True)
     await application.bot.set_webhook(WEBHOOK_URL)
     print("Webhook установлен:", WEBHOOK_URL)
 
-
-# -------------------------------------- MAIN -----------------------------------------
-
+# ------------------- MAIN -------------------
 if __name__ == "__main__":
     asyncio.run(setup_webhook())
     app.run(host="0.0.0.0", port=PORT)
