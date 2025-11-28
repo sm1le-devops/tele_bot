@@ -1,5 +1,5 @@
-from telegram import Update, Bot
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 from flask import Flask, request
 import os
 import re
@@ -13,9 +13,10 @@ ADMIN_NICK = "@conterbloxadmin"
 MODER_NICK = "@sm1le697"
 
 PORT = int(os.environ.get("PORT", 10000))
-WEBHOOK_URL = f"https://your-app-name.onrender.com/{TOKEN}"
+WEBHOOK_URL = f"https://your-app-name.onrender.com/webhook/{TOKEN}"
 
-# ---------------- Данные ----------------
+# ------------------------------------- Данные -------------------------------------
+
 BAN_PHRASES = [
     r"переходите\s+в\s+мою\s+телеграм\s+группу",
     r"переходите\s+в\s+мой\s+тгк",
@@ -27,7 +28,9 @@ BAN_PHRASES = [
     r"\d{16}",
     r"\d{4}\s\d{4}\s\d{4}\s\d{4}",
 ]
+
 SPAM_LIMIT = 17
+
 user_streak = {}
 user_messages = {}
 last_user_in_chat = {}
@@ -57,11 +60,15 @@ TOURNAMENT_INFO = """
 — Следующий: состоится в ближайшее время!
 """
 
-# ---------------- Soft-mute ----------------
+
+# ------------------------------------- Soft-mute -------------------------------------
+
 async def apply_soft_mute(user_id, chat_id, duration_hours=2):
     soft_muted_users[user_id] = datetime.now() + timedelta(hours=duration_hours)
 
-# ---------------- Команды ----------------
+
+# ------------------------------------- Команды -------------------------------------
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🤖 Бот-модератор diamant_manager!\n\n"
@@ -73,26 +80,33 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "!реклама – правила рекламы"
     )
 
+
 async def cmd_moder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"👮 Модератор группы: {MODER_NICK}")
+
 
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🛡 Администратор группы: {ADMIN_NICK}")
 
+
 async def cmd_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(RULES)
 
+
 async def cmd_tournament(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_markdown(TOURNAMENT_INFO)
+
 
 async def cmd_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📢 Любая реклама запрещена! Если хотите разместить — согласуйте с {ADMIN_NICK}"
     )
 
-# ---------------- Обработчик текста ----------------
+
+# ---------------------------------- Обработчик текста ----------------------------------
+
 async def text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.from_user:
+    if not update.message:
         return
 
     user_id = update.message.from_user.id
@@ -100,7 +114,7 @@ async def text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.lower() if update.message.text else ""
     user_name = f"@{update.message.from_user.username}" if update.message.from_user.username else update.message.from_user.first_name
 
-    # Команды через "!"
+    # --- Команды через ! ---
     if text.startswith("!"):
         cmd = text[1:]
         if cmd == "модер": await cmd_moder(update, context)
@@ -110,41 +124,40 @@ async def text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif cmd == "реклама": await cmd_ads(update, context)
         return
 
-    # Soft-mute
+    # --- Soft mute ---
     if user_id in soft_muted_users:
         if datetime.now() < soft_muted_users[user_id]:
             try: await update.message.delete()
             except: pass
             return
         else:
-            soft_muted_users.pop(user_id, None)
+            soft_muted_users.pop(user_id)
 
-    # BAN_PHRASES
+    # --- Запрещённые фразы ---
     for pattern in BAN_PHRASES:
         if text and re.search(pattern, text, re.IGNORECASE):
             try: await update.message.delete()
             except: pass
+
             user_violations[user_id] = user_violations.get(user_id, 0) + 1
-            violations = user_violations[user_id]
-            if violations == 1:
-                await context.bot.send_message(chat_id=chat_id,
-                                               text=f"⚠ {user_name}, реклама и ссылки запрещены! При повторной попытке — предупреждение.")
-            elif violations == 2:
-                await context.bot.send_message(chat_id=chat_id,
-                                               text=f"⚠ {user_name}, повторная попытка запрещённого контента! Последнее предупреждение!")
+            count = user_violations[user_id]
+
+            if count == 1:
+                await context.bot.send_message(chat_id, f"⚠ {user_name}, реклама запрещена!")
+            elif count == 2:
+                await context.bot.send_message(chat_id, f"⚠ {user_name}, второе предупреждение!")
             else:
-                await context.bot.send_message(chat_id=chat_id,
-                                               text=f"⛔ {user_name}, третье нарушение!\nМУТ\nпричина: реклама.\nвремя ограничения: 2 часа.")
-                await apply_soft_mute(user_id, chat_id, duration_hours=2)
+                await context.bot.send_message(chat_id, f"⛔ {user_name}, мут 2 часа.")
+                await apply_soft_mute(user_id, chat_id)
             return
 
-    # Антиспам
+    # --- Антиспам ---
     if last_user_in_chat.get(chat_id) != user_id:
         user_streak[user_id] = 1
         user_messages[user_id] = [update.message]
     else:
-        user_streak[user_id] = user_streak.get(user_id, 0) + 1
-        user_messages.setdefault(user_id, []).append(update.message)
+        user_streak[user_id] += 1
+        user_messages[user_id].append(update.message)
 
     last_user_in_chat[chat_id] = user_id
 
@@ -152,37 +165,48 @@ async def text_listener(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for msg in user_messages[user_id]:
             try: await msg.delete()
             except: pass
+
         if not spam_warnings.get(user_id):
             spam_warnings[user_id] = True
-            await context.bot.send_message(chat_id=chat_id,
-                                           text=f"⚠ {user_name}, спам! При повторном превышении сообщений будет МУТ на 2 часа.")
+            await context.bot.send_message(chat_id, f"⚠ {user_name}, спам!")
         else:
-            await context.bot.send_message(chat_id=chat_id,
-                                           text=f"⛔ {user_name}, спам!\nМУТ\nпричина: спам.\nвремя ограничения: 2 часа.")
-            await apply_soft_mute(user_id, chat_id, duration_hours=2)
+            await context.bot.send_message(chat_id, f"⛔ {user_name}, мут 2 часа.")
+            await apply_soft_mute(user_id, chat_id)
             spam_warnings[user_id] = False
+
         user_streak[user_id] = 0
         user_messages[user_id] = []
 
-# ---------------- Flask webhook ----------------
-app = Flask(__name__)
-application = Application.builder().token(TOKEN).build()
-application.add_handler(CommandHandler("start", cmd_start))
-application.add_handler(
-    MessageHandler(filters.TEXT | filters.Sticker.ALL, text_listener)
-)
 
-@app.route(f'/{TOKEN}', methods=["POST"])
+# ---------------------------------- Flask (WEBHOOK) ----------------------------------
+
+app = Flask(__name__)
+
+# создаём Application один раз
+application = Application.builder().token(TOKEN).build()
+
+# регистрируем handlers
+application.add_handler(CommandHandler("start", cmd_start))
+application.add_handler(MessageHandler(filters.TEXT | filters.Sticker.ALL, text_listener))
+
+
+@app.route(f"/webhook/{TOKEN}", methods=["POST"])
 def webhook():
-    data = request.get_json(force=True)
+    data = request.get_json()
     update = Update.de_json(data, application.bot)
-    application.update_queue.put_nowait(update)
+    asyncio.create_task(application.process_update(update))
     return "ok"
 
-# ---------------- Установка webhook ----------------
-async def set_webhook():
+
+# ----------------------------------- WEBHOOK SETUP -----------------------------------
+
+async def setup_webhook():
     await application.bot.set_webhook(WEBHOOK_URL)
+    print("Webhook установлен:", WEBHOOK_URL)
+
+
+# -------------------------------------- MAIN -----------------------------------------
 
 if __name__ == "__main__":
-    asyncio.run(set_webhook())
+    asyncio.run(setup_webhook())
     app.run(host="0.0.0.0", port=PORT)
